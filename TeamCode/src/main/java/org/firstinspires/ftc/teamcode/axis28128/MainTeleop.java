@@ -241,6 +241,12 @@ public class MainTeleop extends OpMode {
             turretMotor.setPower(0);
         } else if (gamepad1.left_bumper) {
             setTurretAngle(turretTarget, TURRET_PWR);
+        } else {
+            // Freeze in place the moment LB is released — without this the motor
+            // keeps driving toward its last target after the button is let go.
+            turretMotor.setTargetPosition(turretMotor.getCurrentPosition());
+            turretMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            turretMotor.setPower(TURRET_PWR);
         }
 
 
