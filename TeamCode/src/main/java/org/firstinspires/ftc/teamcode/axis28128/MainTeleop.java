@@ -42,7 +42,8 @@ public class MainTeleop extends OpMode {
     public static double TURRET_PWR = 0.3;
 
     public static double TURRET_ANGLE_SIGN = -1;
-    public static double TURRET_ANGLE_OFFSET = ( Math.PI / 6 ) + ( Math.PI / 18) + (Math.PI / 36);
+    // Calibrated on-field 2026-07-04 via the BACK-button routine (50.3 deg).
+    public static double TURRET_ANGLE_OFFSET = 0.88;
 
     public static double TURRET_MIN_ANGLE = 0;
     public static double TURRET_MAX_ANGLE = 0;
@@ -61,7 +62,7 @@ public class MainTeleop extends OpMode {
     public DistanceSensor spindexDistance;
 
     private boolean isShooting = false;
-    private boolean turretTracking = true;
+    private boolean turretCalibrationMode = false;
     private static ElapsedTime currentTimer = new ElapsedTime();
 
     private double currentShooterRPM = 0;
@@ -225,20 +226,21 @@ public class MainTeleop extends OpMode {
         double relBearing   = normalizeDelta(angleToGoal - robotHeading);
         double turretTarget = TURRET_ANGLE_SIGN * relBearing + TURRET_ANGLE_OFFSET;
 
-        // B toggles tracking. With tracking OFF the turret is unpowered so it can
-        // be aimed by hand; point it at the goal and press BACK to calibrate the
-        // offset from the current physical position.
-        if (gamepad1.bWasPressed()) turretTracking = !turretTracking;
+        // The turret tracks the goal only while the shoot button is held; when
+        // released it holds its last position. B toggles calibration mode: the
+        // turret goes unpowered so it can be aimed at the goal by hand, then
+        // BACK recomputes TURRET_ANGLE_OFFSET from the current physical position.
+        if (gamepad1.bWasPressed()) turretCalibrationMode = !turretCalibrationMode;
 
         if (gamepad1.backWasPressed()) {
             TURRET_ANGLE_OFFSET = normalizeDelta(getTurretAngle() - TURRET_ANGLE_SIGN * relBearing);
         }
 
-        if (turretTracking) {
-            setTurretAngle(turretTarget, TURRET_PWR);
-        } else {
+        if (turretCalibrationMode) {
             turretMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
             turretMotor.setPower(0);
+        } else if (gamepad1.left_bumper) {
+            setTurretAngle(turretTarget, TURRET_PWR);
         }
 
 
@@ -271,7 +273,7 @@ public class MainTeleop extends OpMode {
         telemetry.addData("Current Velocity",  curVelocity);
         telemetry.addData("Target Velocity",   currentTPS);
         telemetry.addData("=== TURRET ===",    "");
-        telemetry.addData("Tracking (B)",      turretTracking ? "ON" : "OFF (hand-aim + BACK to calibrate)");
+        telemetry.addData("Turret Mode",       turretCalibrationMode ? "CALIBRATE (hand-aim + BACK)" : "track while shooting (B = calibrate)");
         telemetry.addData("TURRET_ANGLE_SIGN", "%.0f",       TURRET_ANGLE_SIGN);
         telemetry.addData("TURRET_ANGLE_OFFSET","%.2f rad (%.1f deg)", TURRET_ANGLE_OFFSET, Math.toDegrees(TURRET_ANGLE_OFFSET));
         telemetry.addData("Robot Heading",     "%.1f deg",   Math.toDegrees(robotHeading));
