@@ -30,8 +30,11 @@ public class MainTeleop extends OpMode {
     public static double SHOOT_ADVANCE_MS = 450; // tune this — time between each ball feed
     private double nextShootAdvanceTime = 0;
     private Follower follower;
-    public static Pose startingPose;
     public TelemetryManager telemetryM;
+
+    // Red-alliance aim point; blue mirrors across the field centerline (x = 72).
+    public static double GOAL_X = 140, GOAL_Y = 140;
+    public static boolean IS_RED_ALLIANCE = true;
 
     public static double shooterMaxTPS = 6200, shooterMinTPS = 2000, currentTPS = shooterMaxTPS;
     public static double TURRET_TPR = 873;
@@ -103,9 +106,8 @@ public class MainTeleop extends OpMode {
         turretMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         transferMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
-        startingPose = new Pose(80, 8, 0);
         follower = Constants.createFollower(hardwareMap);
-        follower.setStartingPose(startingPose);
+        follower.setStartingPose(PoseStorage.currentPose);
         follower.update();
 
         telemetryM = PanelsTelemetry.INSTANCE.getTelemetry();
@@ -140,8 +142,11 @@ public class MainTeleop extends OpMode {
         if (gamepad1.left_bumper) {
             shooterMotor.setPower(pwr);
             transferMotor.setPower(0.2);
-            double angleToGoal  = Math.atan2(140 - follower.getPose().getY(), 140 - follower.getPose().getX());
-            double turretTarget = angleToGoal * TURRET_ANGLE_SIGN + TURRET_ANGLE_OFFSET - follower.getPose().getHeading();
+            // Bearing to goal relative to the robot is (angleToGoal - heading); the whole
+            // relative bearing gets flipped by TURRET_ANGLE_SIGN, heading included —
+            // otherwise the aim error is 2x the robot heading.
+            double angleToGoal  = Math.atan2(goalY() - follower.getPose().getY(), goalX() - follower.getPose().getX());
+            double turretTarget = TURRET_ANGLE_SIGN * (angleToGoal - follower.getPose().getHeading()) + TURRET_ANGLE_OFFSET;
             setTurretAngle(turretTarget, TURRET_PWR);
             transfer(true);
             if (isShooting) {
@@ -194,8 +199,9 @@ public class MainTeleop extends OpMode {
             spinidx = 3;
         }
         ballWasDetected = ballNearNow;
-        // BUG FIX #3: Clamp spinidx properly — wrap at top, floor at 0.
-        if (spinidx > 6) spinidx = 0;
+        // Wrap at top, floor at 0. Must use array length: spindexerPos has 6
+        // entries, so letting spinidx reach 6 crashes the OpMode mid-match.
+        if (spinidx >= spindexerPos.length) spinidx = 0;
         if (spinidx < 0) spinidx = 0;
 
         spindexerServo.setPosition(spindexerPos[spinidx]);
@@ -214,9 +220,8 @@ public class MainTeleop extends OpMode {
         double ry          = currPose.getY();
         double robotHeading = follower.getHeading();
 
-        // BUG FIX #4: angleToGoal is field-relative. To get the angle the turret
-        // (which is mounted on the robot) needs to point, subtract the robot heading
-        // instead of adding it. Adding heading gave a nonsensical double-rotation.
+        currentDistance = getDistance(rx, ry);
+        PoseStorage.currentPose = currPose;
 
 
         // === CLOSE / FAR SPEED TOGGLE ===
@@ -254,6 +259,8 @@ public class MainTeleop extends OpMode {
         telemetry.addData("Turret Current",    "%.1f deg",   Math.toDegrees(getTurretAngle()));
         telemetry.addData("=== POSITION ===",  "");
         telemetry.addData("Robot",             "(%.1f, %.1f)", rx, ry);
+        telemetry.addData("Alliance",          IS_RED_ALLIANCE ? "RED" : "BLUE");
+        telemetry.addData("Goal Target",       "(%.0f, %.0f)", goalX(), goalY());
         telemetry.addData("Turret Tick Limits","[%d, %d]",   TURRET_TICK_MIN, TURRET_TICK_MAX);
         telemetry.addData("Turret Target Pos", turretMotor.getTargetPosition());
         telemetry.addData("=== PIDF ===",      "");
@@ -308,9 +315,17 @@ public class MainTeleop extends OpMode {
         turretMotor.setPower(pwr);
     }
 
+    public double goalX() {
+        return IS_RED_ALLIANCE ? GOAL_X : 144 - GOAL_X;
+    }
+
+    public double goalY() {
+        return GOAL_Y;
+    }
+
     public double getDistance(double rx, double ry) {
-        double dx = 140 - rx;
-        double dy = 140 - ry;
+        double dx = goalX() - rx;
+        double dy = goalY() - ry;
         return sqrt(dx * dx + dy * dy);
     }
 

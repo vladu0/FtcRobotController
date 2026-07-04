@@ -101,6 +101,7 @@ public class CloseRedTest extends OpMode {
     @Override
     public void loop() {
         follower.update();      // Update driving
+        PoseStorage.currentPose = follower.getPose(); // Hand off pose to teleop
         updateSubsystems();     // Update shooter/intake/turret logic continuously
         autonomousPathUpdate(); // Update auto state machine
 
@@ -129,7 +130,7 @@ public class CloseRedTest extends OpMode {
 
             // --- TURRET DISABLED ---
             // double angleToGoal = Math.atan2(140 - follower.getPose().getY(), 140 - follower.getPose().getX());
-            // double turretTarget = angleToGoal * TURRET_ANGLE_SIGN + TURRET_ANGLE_OFFSET - follower.getPose().getHeading();
+            // double turretTarget = TURRET_ANGLE_SIGN * (angleToGoal - follower.getPose().getHeading()) + TURRET_ANGLE_OFFSET;
             // setTurretAngle(turretTarget, TURRET_PWR);
 
             transfer(true);
@@ -281,6 +282,10 @@ public class CloseRedTest extends OpMode {
             turretMotor.setPower(0);
             return;
         }
+
+        turretMotor.setTargetPosition(targetTicks);
+        turretMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        turretMotor.setPower(pwr);
     }
 
     public double getTurretAngle() {
