@@ -61,6 +61,7 @@ public class MainTeleop extends OpMode {
     public DistanceSensor spindexDistance;
 
     private boolean isShooting = false;
+    private boolean turretTracking = true;
     private static ElapsedTime currentTimer = new ElapsedTime();
 
     private double currentShooterRPM = 0;
@@ -142,12 +143,6 @@ public class MainTeleop extends OpMode {
         if (gamepad1.left_bumper) {
             shooterMotor.setPower(pwr);
             transferMotor.setPower(0.2);
-            // Bearing to goal relative to the robot is (angleToGoal - heading); the whole
-            // relative bearing gets flipped by TURRET_ANGLE_SIGN, heading included —
-            // otherwise the aim error is 2x the robot heading.
-            double angleToGoal  = Math.atan2(goalY() - follower.getPose().getY(), goalX() - follower.getPose().getX());
-            double turretTarget = TURRET_ANGLE_SIGN * (angleToGoal - follower.getPose().getHeading()) + TURRET_ANGLE_OFFSET;
-            setTurretAngle(turretTarget, TURRET_PWR);
             transfer(true);
             if (isShooting) {
                 if (currentTimer.milliseconds() >= nextShootAdvanceTime && spinidx < 5) {
@@ -223,6 +218,29 @@ public class MainTeleop extends OpMode {
         currentDistance = getDistance(rx, ry);
         PoseStorage.currentPose = currPose;
 
+        // Bearing to goal relative to the robot is (angleToGoal - heading); the whole
+        // relative bearing gets flipped by TURRET_ANGLE_SIGN, heading included —
+        // otherwise the aim error is 2x the robot heading.
+        double angleToGoal  = Math.atan2(goalY() - ry, goalX() - rx);
+        double relBearing   = normalizeDelta(angleToGoal - robotHeading);
+        double turretTarget = TURRET_ANGLE_SIGN * relBearing + TURRET_ANGLE_OFFSET;
+
+        // B toggles tracking. With tracking OFF the turret is unpowered so it can
+        // be aimed by hand; point it at the goal and press BACK to calibrate the
+        // offset from the current physical position.
+        if (gamepad1.bWasPressed()) turretTracking = !turretTracking;
+
+        if (gamepad1.backWasPressed()) {
+            TURRET_ANGLE_OFFSET = normalizeDelta(getTurretAngle() - TURRET_ANGLE_SIGN * relBearing);
+        }
+
+        if (turretTracking) {
+            setTurretAngle(turretTarget, TURRET_PWR);
+        } else {
+            turretMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            turretMotor.setPower(0);
+        }
+
 
         // === CLOSE / FAR SPEED TOGGLE ===
         if (gamepad1.xWasPressed()) {
@@ -253,10 +271,15 @@ public class MainTeleop extends OpMode {
         telemetry.addData("Current Velocity",  curVelocity);
         telemetry.addData("Target Velocity",   currentTPS);
         telemetry.addData("=== TURRET ===",    "");
+        telemetry.addData("Tracking (B)",      turretTracking ? "ON" : "OFF (hand-aim + BACK to calibrate)");
         telemetry.addData("TURRET_ANGLE_SIGN", "%.0f",       TURRET_ANGLE_SIGN);
         telemetry.addData("TURRET_ANGLE_OFFSET","%.2f rad (%.1f deg)", TURRET_ANGLE_OFFSET, Math.toDegrees(TURRET_ANGLE_OFFSET));
         telemetry.addData("Robot Heading",     "%.1f deg",   Math.toDegrees(robotHeading));
+        telemetry.addData("Angle To Goal",     "%.1f deg",   Math.toDegrees(angleToGoal));
+        telemetry.addData("Rel Bearing",       "%.1f deg",   Math.toDegrees(relBearing));
+        telemetry.addData("Turret Target",     "%.1f deg",   Math.toDegrees(turretTarget));
         telemetry.addData("Turret Current",    "%.1f deg",   Math.toDegrees(getTurretAngle()));
+        telemetry.addData("Turret Error",      "%.1f deg",   Math.toDegrees(normalizeDelta(turretTarget - getTurretAngle())));
         telemetry.addData("=== POSITION ===",  "");
         telemetry.addData("Robot",             "(%.1f, %.1f)", rx, ry);
         telemetry.addData("Alliance",          IS_RED_ALLIANCE ? "RED" : "BLUE");
@@ -303,7 +326,11 @@ public class MainTeleop extends OpMode {
 
         double newTarget  = currentRadians + delta;
         int    targetTicks = (int) (newTarget * TURRET_TICKS_PER_RADIAN);
-        if (targetTicks < -490) targetTicks += (int) TURRET_TPR;
+        // The [TICK_MIN, TICK_MAX] window spans a full revolution, so any target
+        // outside it has an equivalent inside — wrap by one revolution instead of
+        // rejecting (the old < -490 threshold left a ~41 deg dead zone).
+        if (targetTicks < TURRET_TICK_MIN)      targetTicks += (int) TURRET_TPR;
+        else if (targetTicks > TURRET_TICK_MAX) targetTicks -= (int) TURRET_TPR;
 
         if (targetTicks < TURRET_TICK_MIN || targetTicks > TURRET_TICK_MAX) {
             turretMotor.setPower(0);
